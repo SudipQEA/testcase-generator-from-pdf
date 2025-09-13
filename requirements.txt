@@ -1,11 +1,9 @@
-langchain
-langchain_community
-langchain-google-genai
-python-dotenv
 streamlit
-langchain_experimental
+pandas
+python-dotenv
+langchain
+langchain-community
+langchain-chroma
 sentence-transformers
-langchain_chroma
-langchainhub
 pypdf
-rapidocr-onnxruntime
+ollama
