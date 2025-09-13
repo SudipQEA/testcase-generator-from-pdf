@@ -7,3 +7,4 @@ langchain-chroma
 sentence-transformers
 pypdf
 ollama
+sentence-transformers
