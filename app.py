@@ -2,26 +2,21 @@ import streamlit as st
 import pandas as pd
 import io
 import os
-from dotenv import load_dotenv
 
 # LangChain imports
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain.chains import create_stuff_documents_chain, create_retrieval_chain
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_llms import HuggingFacePipeline
-
-# HuggingFace imports
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, pipeline
-
-# Load environment variables (optional)
-load_dotenv()
+from langchain.prompts import ChatPromptTemplate
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
+from langchain_community.llms import Ollama
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # -----------------------------
 # Streamlit title
 # -----------------------------
-st.title("📄 Requirement → Test Scenario Generator (Offline)")
+st.title("📄 Requirement → Test Scenario Generator (Offline with Ollama)")
 
 # -----------------------------
 # File upload
@@ -45,10 +40,8 @@ if uploaded_file:
     docs = text_splitter.split_documents(data)
 
     # -----------------------------
-    # Create embeddings + vector store (offline)
+    # Create embeddings + vector store
     # -----------------------------
-    from langchain.embeddings import HuggingFaceEmbeddings
-
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
     persist_directory = "chroma_db"
@@ -69,14 +62,9 @@ if uploaded_file:
     retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5})
 
     # -----------------------------
-    # HuggingFace LLM
+    # Ollama LLM (offline)
     # -----------------------------
-    model_name = "google/flan-t5-small"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-
-    hf_pipe = pipeline("text2text-generation", model=model, tokenizer=tokenizer, max_length=512)
-    llm = HuggingFacePipeline(pipeline=hf_pipe)
+    llm = Ollama(model="llama3")  # make sure you have run: ollama pull llama3
 
     # -----------------------------
     # Prompt template
@@ -87,13 +75,13 @@ if uploaded_file:
     For each requirement:
     1. Extract requirement text.
     2. Suggest 2–3 test scenarios.
-    3. Assign complexity: 
+    3. Assign complexity:
        - Simple → Basic validation (single field/button check).
        - Medium → Multiple fields, conditions, or validations.
        - Complex → Multi-step workflow, role-based checks, or dependencies.
 
     Return output strictly in **CSV format** with columns:
-    Requirement, Scenario, Complexity
+    Requirement,Scenario,Complexity
 
     {context}
     """
@@ -106,22 +94,31 @@ if uploaded_file:
     # -----------------------------
     # User query
     # -----------------------------
-    query = st.chat_input("Enter requirement area (e.g., Login, Dashboard):")
+    query = st.chat_input("Enter requirement area (e.g., Login, Dashboard) or 'all' for all modules:")
 
     if query:
         question_answer_chain = create_stuff_documents_chain(llm, prompt)
-        rag_chain = create_retrieval_chain(retriever, question_answer_chain)
 
-        response = rag_chain.invoke({"input": query})
+        # If user requests ALL modules → feed full document, not retriever
+        if query.strip().lower() in ["all", "all modules", "share me all list of scenarios"]:
+            context_text = "\n\n".join([d.page_content for d in docs])
+            response = question_answer_chain.invoke({"input": query, "context": context_text})
+            answer_text = response
+        else:
+            rag_chain = create_retrieval_chain(retriever, question_answer_chain)
+            response = rag_chain.invoke({"input": query})
+            answer_text = response["answer"]
 
         # -----------------------------
         # Convert CSV-like response to DataFrame
         # -----------------------------
         try:
-            df = pd.read_csv(io.StringIO(response["answer"]))
-            st.dataframe(df)
+            df = pd.read_csv(io.StringIO(answer_text))
+            st.subheader("✅ Generated Test Scenarios")
+            st.dataframe(df, use_container_width=True)
 
-            # Option to download as CSV
+            # CSV download code (commented out for now)
+            """
             csv = df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="⬇️ Download Scenarios as CSV",
@@ -129,6 +126,7 @@ if uploaded_file:
                 file_name="test_scenarios.csv",
                 mime="text/csv"
             )
+            """
         except Exception:
             st.warning("⚠️ Could not parse as CSV. Showing raw output instead:")
-            st.text(response["answer"])
+            st.text(answer_text)
