@@ -117,6 +117,3 @@ http://localhost:8501
 
 Sudip Dutta
 
-
-
-✅ **End of README**
