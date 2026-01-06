@@ -8,4 +8,4 @@
 
 
 ## Run App:
-		streamlit run app1.py
+		streamlit run app.py
